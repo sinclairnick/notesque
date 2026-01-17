@@ -1,0 +1,148 @@
+// Scorelang adjustments
+
+// Declare staves at the top of the file
+---
+&right:
+	clef: treble
+&left:
+	clef: bass
+---
+
+// The `---` syntax is used to modify the context.
+---
+tempo: 100
+key: C#m
+time: "4/4"
+---
+
+// Instead of specifying bars with |, we just specify notes, and they are arranged into bars as per the contextual time signature and
+// the durations of each note. This should also be validated, if notes are arranged incompatibly.
+// In short whitespace for notes doesnt matter and bars are implicit.
+// Our engine should figure out how many bars per row accordingly.
+A B C D E F G
+A
+ B C
+
+// double slash for single line comments
+// /** */ for multi-line comments
+
+// By default the center/default octave is 4, but that can be changed via context too
+---
+octave: 5
+---
+A B C D E F G
+
+
+// An arbitrary number of staffs should be supported
+// The `&` prefix indicates a staff
+
+&<staff_name>{ /** notes */ }
+
+// The examples above of free notes is not actually supported. Everything must be in a stave, like below.
+
+// We can define staffs in whatever order we want. Since our lang just collects the notes and lays them out in sequence.
+// Order does not matter here, and we can intersperse staff note definitions as we please.
+// But a time or key change will "seal off" the above and imply any missing notes should be rests.
+
+&right{
+	A B C
+	D E F
+}
+&left{
+	A B C
+}
+
+// This means users can choose to right whole staffs at once, or intersperse, or a mixture.
+
+// Staffs are arbitrary tokens we can name anything (ASCII chars), and need to be declared before use, 
+// with their staff type (treble, clef, etc.) specified.
+// Staves must be defined at the top off the file.
+
+// Every note must be within a staff, which allows our lexer/parser to switch "modes" and expand
+// the grammar.
+
+// Staffs can be skipped (hidden) entirely for sections of the music too.
+---
+&vocals:
+	hidden: true
+---
+
+&vocals{} // this would cause an error
+
+// When a staff is enabled, it's "default state" is full of rests.
+
+---
+&vocals:
+	hidden: false
+---
+// Will show the staff, and fill any missing notes with rests.
+
+// Music sections can be defined via context too
+
+---
+section: "Prelude"
+---
+
+A B C D E F G
+
+// Context scope can be made scoped via curly braces like:
+
+{
+	---
+	tempo: 120
+	---
+	// ...
+
+	{
+		---
+		tempo: 90
+		---
+		// ...
+	}
+}
+
+// Basic lang:
+
+// _ specifies a rest
+// ^ specifies a tie
+// All notes must be space-delimited, and are capitalised
+
+// Notes follow a format: <pitch><accidental?><octave?|octave_multiplier?>{.length?}@{<modifiers>}
+// E.g.:
+// Notes must always be upper case, where lowercase letters are reserved for keywords or other syntax!
+C // (c at default octave)
+C# // (c sharp at default octave)
+Cb // (c sharp at default octave)
+C4 // (C at octave 4)
+C+ // (up one octave from contextual 'octave' setting)
+C#4 // (C sharp at octave 4)
+C/4. // (C dotted quarter note, the 4 is optional/implied for quarter note)
+C. // (C dotted quarter note)
+C/8 // (8th note)
+C/16 // (16th note)
+C/2 // (half note)
+C/1 // (whole note)
+C:st:tr // (articulations like staccato, tenuto, etc. can be chained via ':')
+p(C) // (piano)
+pp(C) // (pianissimo)
+ppp(C) // (pianississimo)
+p(C A B) // (piano for C, A, B)
+p(C A B)/8 // (piano for C, A, B, eighth notes)
+
+// We can use parentheses to group notes and apply distributed modifiers
+
+(a b c)# // these are all sharps now
+(a b c)b // all flats now
+(a b c):st // all staccato now
+(a b c)/8 // all eighth notes now
+
+// This must be validated to ensure it makes sense. E.g F flat in treble clef is invalid.
+
+// Chords are defined using [] syntax
+[ A B C ]
+
+
+// Formatter should:
+// Indent sensibly
+// Newline where a full measure/bar is achieved, according to that contextual time signature
+// 

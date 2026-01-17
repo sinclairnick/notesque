@@ -1,0 +1,212 @@
+{
+	"$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+	"name": "Scorelang",
+	"scopeName": "source.scorelang",
+	"patterns": [
+		{ "include": "#comments" },
+		{ "include": "#context-block" },
+		{ "include": "#stave-declaration" },
+		{ "include": "#stave-body" },
+		{ "include": "#annotation-block" }
+	],
+	"repository": {
+		"comments": {
+			"patterns": [
+				{
+					"name": "comment.line.double-slash.scorelang",
+					"match": "//.*$"
+				},
+				{
+					"name": "comment.block.scorelang",
+					"begin": "/\\*",
+					"end": "\\*/"
+				}
+			]
+		},
+		"context-block": {
+			"begin": "^---$",
+			"end": "^---$",
+			"name": "meta.context-block.scorelang",
+			"beginCaptures": {
+				"0": { "name": "punctuation.definition.block.begin.scorelang" }
+			},
+			"endCaptures": {
+				"0": { "name": "punctuation.definition.block.end.scorelang" }
+			},
+			"patterns": [
+				{ "include": "#comments" },
+				{ "include": "#stave-config" },
+				{ "include": "#context-key-value" }
+			]
+		},
+		"stave-config": {
+			"begin": "(&\\w+(?:\\+\\w+)?):",
+			"end": "(?=^&|^---)",
+			"beginCaptures": {
+				"1": { "name": "entity.name.section.stave.scorelang" }
+			},
+			"patterns": [
+				{ "include": "#context-key-value" }
+			]
+		},
+		"context-key-value": {
+			"match": "(\\w+):\\s*(.+)?$",
+			"captures": {
+				"1": { "name": "keyword.other.context-key.scorelang" },
+				"2": { "name": "string.unquoted.context-value.scorelang" }
+			}
+		},
+		"stave-declaration": {
+			"match": "(&\\w+(?:\\+\\w+)?)",
+			"name": "entity.name.section.stave.scorelang"
+		},
+		"stave-body": {
+			"begin": "\\{",
+			"end": "\\}",
+			"name": "meta.stave-body.scorelang",
+			"beginCaptures": {
+				"0": { "name": "punctuation.definition.brace.begin.scorelang" }
+			},
+			"endCaptures": {
+				"0": { "name": "punctuation.definition.brace.end.scorelang" }
+			},
+			"patterns": [
+				{ "include": "#comments" },
+				{ "include": "#function-call" },
+				{ "include": "#chord" },
+				{ "include": "#grace-note" },
+				{ "include": "#beam-group" },
+				{ "include": "#note" },
+				{ "include": "#rest" },
+				{ "include": "#connectives" }
+			]
+		},
+		"annotation-block": {
+			"begin": "\\{(?=.*\\()",
+			"end": "\\}",
+			"name": "meta.annotation-block.scorelang",
+			"beginCaptures": {
+				"0": { "name": "punctuation.definition.annotation.begin.scorelang" }
+			},
+			"endCaptures": {
+				"0": { "name": "punctuation.definition.annotation.end.scorelang" }
+			},
+			"patterns": [
+				{ "include": "#comments" },
+				{ "include": "#annotation-function" }
+			]
+		},
+		"annotation-function": {
+			"begin": "(\\b(?:ppp|pp|p|mp|mf|f|ff|fff|cresc|decresc|st|tn|ac|mc|fm|tr|tie|slur|pedal|oct|dur|finger|beam|tuplet|grace|text|8va|8vb)\\b)\\(",
+			"end": "\\)",
+			"beginCaptures": {
+				"1": { "name": "entity.name.function.annotation.scorelang" }
+			},
+			"patterns": [
+				{ "include": "#range" },
+				{ "include": "#number" },
+				{ "include": "#string" },
+				{
+					"match": ",",
+					"name": "punctuation.separator.comma.scorelang"
+				}
+			]
+		},
+		"range": {
+			"match": "\\b(\\d+)-(\\d+)\\b",
+			"name": "constant.numeric.range.scorelang"
+		},
+		"number": {
+			"match": "\\b\\d+\\b",
+			"name": "constant.numeric.scorelang"
+		},
+		"string": {
+			"name": "string.quoted.double.scorelang",
+			"begin": "\"",
+			"end": "\""
+		},
+		"function-call": {
+			"begin": "(\\b(?:ppp|pp|p|mp|mf|f|ff|fff|cresc|decresc|st|tn|ac|mc|fm|tr|tie|slur|pedal|oct|dur|finger|beam|tuplet|grace|text|8va|8vb)\\b)\\(",
+			"end": "\\)",
+			"beginCaptures": {
+				"1": { "name": "entity.name.function.scorelang" }
+			},
+			"patterns": [
+				{ "include": "#chord" },
+				{ "include": "#note" },
+				{ "include": "#rest" },
+				{ "include": "#connectives" }
+			]
+		},
+		"chord": {
+			"begin": "\\[",
+			"end": "\\]",
+			"name": "meta.chord.scorelang",
+			"beginCaptures": {
+				"0": { "name": "punctuation.definition.chord.begin.scorelang" }
+			},
+			"endCaptures": {
+				"0": { "name": "punctuation.definition.chord.end.scorelang" }
+			},
+			"patterns": [
+				{ "include": "#note-pitch" }
+			]
+		},
+		"grace-note": {
+			"match": "(`{1,2})([A-G][#b]{0,2}\\d?)",
+			"captures": {
+				"1": { "name": "keyword.operator.grace.scorelang" },
+				"2": { "name": "variable.other.note.grace.scorelang" }
+			}
+		},
+		"beam-group": {
+			"begin": "=\\(",
+			"end": "\\)",
+			"name": "meta.beam-group.scorelang",
+			"beginCaptures": {
+				"0": { "name": "keyword.operator.beam.scorelang" }
+			},
+			"patterns": [
+				{ "include": "#note" }
+			]
+		},
+		"note": {
+			"match": "([A-G])([#b]{1,2})?(\\d)?(/(?:32|16|8|4|2|1)(\\.{1,2})?)?(@[1-5])?(\\+{1,2}|\\-{1,2})?",
+			"captures": {
+				"1": { "name": "variable.other.note.letter.scorelang" },
+				"2": { "name": "keyword.operator.accidental.scorelang" },
+				"3": { "name": "constant.numeric.octave.scorelang" },
+				"4": { "name": "constant.numeric.duration.scorelang" },
+				"6": { "name": "constant.other.fingering.scorelang" },
+				"7": { "name": "keyword.operator.octave-modifier.scorelang" }
+			}
+		},
+		"note-pitch": {
+			"match": "([A-G])([#b]{1,2})?(\\d)?",
+			"captures": {
+				"1": { "name": "variable.other.note.letter.scorelang" },
+				"2": { "name": "keyword.operator.accidental.scorelang" },
+				"3": { "name": "constant.numeric.octave.scorelang" }
+			}
+		},
+		"rest": {
+			"match": "_(/(?:32|16|8|4|2|1)(\\.{1,2})?)?",
+			"name": "constant.other.rest.scorelang",
+			"captures": {
+				"1": { "name": "constant.numeric.duration.scorelang" }
+			}
+		},
+		"connectives": {
+			"patterns": [
+				{
+					"match": "~",
+					"name": "keyword.operator.slur.scorelang"
+				},
+				{
+					"match": "\\^",
+					"name": "keyword.operator.tie.scorelang"
+				}
+			]
+		}
+	}
+}

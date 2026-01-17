@@ -98,9 +98,10 @@ title: Untitled
 key: C major
 time: 4/4
 tempo: 120
+&right:
+  clef: treble
 ---
-
-| C D E F | G A B c |
+&right { C D E F G A B C+ }
 `;
 
 // Error types for parser
