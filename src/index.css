@@ -161,4 +161,19 @@
   ::-webkit-scrollbar-thumb:hover {
     background: var(--muted-foreground);
   }
+
+  /* Scorelang Syntax Highlighting */
+  .sl-keyword { color: #c678dd; }
+  .sl-function { color: #61afef; }
+  .sl-variable { color: #e06c75; }
+  .sl-string { color: #98c379; }
+  .sl-number { color: #d19a66; }
+  .sl-constant { color: #d19a66; }
+  .sl-constant-other { color: #e5c07b; }
+  .sl-operator { color: #56b6c2; }
+  .sl-punctuation { color: #abb2bf; }
+  .sl-punctuation-annotation { color: #c678dd; }
+  .sl-entity { color: #e5c07b; }
+  .sl-comment { color: #5c6370; font-style: italic; }
+  .sl-error { color: #f44747; text-decoration: wavy underline; }
 }

@@ -4,8 +4,9 @@
 export type TokenType =
 	// Structure
 	| 'CONTEXT_DELIM'        // ---
-	| 'CONTEXT_KEY'          // tempo, key, time, etc.
-	| 'CONTEXT_VALUE'        // value after colon
+	| 'YAML_CONTENT'         // Content between delimiters
+	| 'CONTEXT_KEY'          // tempo, key, time, etc. (deprecated, use YAML_CONTENT)
+	| 'CONTEXT_VALUE'        // value after colon (deprecated, use YAML_CONTENT)
 	| 'STAVE_DECL'           // &right, &left, &right+alto
 	| 'STAVE_BODY_START'     // { after stave name
 	| 'STAVE_BODY_END'       // } closing stave body
@@ -97,7 +98,6 @@ const DURATION_PATTERN = /^\/(32|16|8|4|2|1)(\.{1,2})?/;
 const OCTAVE_MOD_PATTERN = /^(\+\+?|--?)/;
 const FINGERING_PATTERN = /^@([1-5])/;
 const STAVE_PATTERN = /^&(\w+)(\+\w+)?/;
-const CONTEXT_KEY_PATTERN = /^(\w+):\s*/;
 const RANGE_PATTERN = /^(\d+)-(\d+)/;
 const NUMBER_PATTERN = /^(\d+)/;
 const STRING_PATTERN = /^"([^"]*)"/;
@@ -209,6 +209,8 @@ export class ScoreLexer {
 			const fullMatch = staveMatch[0];
 			this.advance(fullMatch.length);
 			this.addTokenAt('STAVE_DECL', fullMatch, startLine, startColumn, start, this.pos);
+			// Reset annotation block expectation - a new stave is starting
+			this.expectAnnotationBlock = false;
 			return;
 		}
 
@@ -445,78 +447,28 @@ export class ScoreLexer {
 	}
 
 	private scanContextContent(startLine: number, startColumn: number, start: number): void {
-		const char = this.peek();
 		const remaining = this.source.slice(this.pos);
+		const delimIdx = remaining.indexOf('---');
 
-		// Newline
-		if (char === '\n') {
-			this.advance(1);
-			this.addTokenAt('NEWLINE', '\n', startLine, startColumn, start, this.pos);
-			this.line++;
-			this.column = 1;
-			return;
+		let content = '';
+		if (delimIdx === -1) {
+			content = remaining;
+			this.advance(remaining.length);
+		} else {
+			content = remaining.slice(0, delimIdx);
+			this.advance(delimIdx);
 		}
 
-		// Whitespace
-		if (/[ \t\r]/.test(char)) {
-			let ws = '';
-			while (!this.isAtEnd() && /[ \t\r]/.test(this.peek())) {
-				ws += this.peek();
-				this.advance(1);
-			}
-			this.addTokenAt('WHITESPACE', ws, startLine, startColumn, start, this.pos);
-			return;
+		// Update line and column
+		const lines = content.split('\n');
+		this.line += lines.length - 1;
+		if (lines.length > 1) {
+			this.column = lines[lines.length - 1].length + 1;
+		} else {
+			this.column += content.length;
 		}
 
-		// Stave declaration in context
-		const staveMatch = remaining.match(STAVE_PATTERN);
-		if (staveMatch) {
-			const fullMatch = staveMatch[0];
-			this.advance(fullMatch.length);
-			this.addTokenAt('STAVE_DECL', fullMatch, startLine, startColumn, start, this.pos);
-			return;
-		}
-
-		// Key-value pair
-		const keyMatch = remaining.match(CONTEXT_KEY_PATTERN);
-		if (keyMatch) {
-			const key = keyMatch[1];
-			this.advance(key.length);
-			this.addTokenAt('CONTEXT_KEY', key, startLine, startColumn, start, this.pos);
-
-			// Skip colon and whitespace
-			while (!this.isAtEnd() && /[:\s]/.test(this.peek()) && this.peek() !== '\n') {
-				this.advance(1);
-			}
-
-			// Get value until newline
-			const valueStart = this.pos;
-			let value = '';
-			while (!this.isAtEnd() && this.peek() !== '\n') {
-				value += this.peek();
-				this.advance(1);
-			}
-			if (value.trim()) {
-				this.addTokenAt('CONTEXT_VALUE', value.trim(), startLine, this.column - value.length, valueStart, this.pos);
-			}
-			return;
-		}
-
-		// Comment in context
-		if (remaining.startsWith('//')) {
-			this.advance(2);
-			let comment = '//';
-			while (!this.isAtEnd() && this.peek() !== '\n') {
-				comment += this.peek();
-				this.advance(1);
-			}
-			this.addTokenAt('COMMENT', comment, startLine, startColumn, start, this.pos);
-			return;
-		}
-
-		// Unknown in context
-		this.advance(1);
-		this.addTokenAt('UNKNOWN', char, startLine, startColumn, start, this.pos);
+		this.addTokenAt('YAML_CONTENT', content, startLine, startColumn, start, this.pos);
 	}
 
 	private isAtEnd(): boolean {

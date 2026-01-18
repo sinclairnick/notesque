@@ -27,27 +27,6 @@ export interface ValidationResult {
 	diagnostics: Diagnostic[];
 }
 
-// Duration values in beats (assuming quarter = 1)
-const DURATION_BEATS: Record<DurationNode['base'], number> = {
-	'w': 4,
-	'h': 2,
-	'q': 1,
-	'8': 0.5,
-	'16': 0.25,
-	'32': 0.125,
-};
-
-// Apply dots to duration
-function getDurationBeats(duration: DurationNode): number {
-	let beats = DURATION_BEATS[duration.base];
-	let dotValue = beats / 2;
-	for (let i = 0; i < duration.dots; i++) {
-		beats += dotValue;
-		dotValue /= 2;
-	}
-	return beats;
-}
-
 export class ScoreValidator {
 	private diagnostics: Diagnostic[] = [];
 	private declaredStaves: Set<string> = new Set();
@@ -90,26 +69,10 @@ export class ScoreValidator {
 		}
 	}
 
-	private validateMeasure(measure: MeasureNode, score: ScoreNode): void {
-		// Calculate beat count
-		const beats = measure.elements.reduce((sum, el) => {
-			if (el.kind === 'Note' || el.kind === 'Rest' || el.kind === 'Chord') {
-				return sum + getDurationBeats(el.duration);
-			}
-			return sum;
-		}, 0);
-
-		// Check against time signature
-		if (score.metadata.time) {
-			const expectedBeats = score.metadata.time.beats;
-			if (beats > expectedBeats) {
-				this.addWarning(
-					`Measure has ${beats} beats, expected ${expectedBeats} (time: ${score.metadata.time.beats}/${score.metadata.time.beatType})`,
-					measure.loc.line,
-					measure.loc.column
-				);
-			}
-		}
+	private validateMeasure(measure: MeasureNode, _score: ScoreNode): void {
+		// Note: Beat count validation is not needed since the parser
+		// automatically splits notes into measures based on time signature.
+		// Users write notes freely; the compiler handles measure boundaries.
 
 		// Validate elements
 		for (const element of measure.elements) {

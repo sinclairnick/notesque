@@ -55,6 +55,8 @@ export interface NoteNode extends ASTNode {
 	pitch: PitchNode;
 	duration: DurationNode;
 	tied: boolean;
+	beamed?: boolean;
+	grace?: boolean;
 	annotation?: AnnotationNode;
 }
 
@@ -67,6 +69,7 @@ export interface ChordNode extends ASTNode {
 	kind: 'Chord';
 	pitches: PitchNode[];
 	duration: DurationNode;
+	tied?: boolean;
 	annotation?: AnnotationNode;
 }
 
@@ -78,6 +81,11 @@ export interface MeasureNode extends ASTNode {
 	kind: 'Measure';
 	elements: MusicElementNode[];
 	barline: 'single' | 'double' | 'repeat-start' | 'repeat-end' | 'final';
+	attributes?: {
+		key?: string;
+		time?: TimeSignatureNode;
+		clef?: string;
+	};
 }
 
 export interface StaffNode extends ASTNode {
@@ -104,6 +112,7 @@ export interface MetadataNode extends ASTNode {
 	tempo?: number;
 	defaultOctave?: Octave;
 	staves?: Array<{ name: string; clef: string }>;
+	[key: string]: any; // Allow arbitrary YAML fields
 }
 
 // ============ Root ============

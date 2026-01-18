@@ -2,6 +2,7 @@
 // Formats score source code for consistent styling
 
 import { tokenize, type Token, type TokenType } from './score-lexer';
+import { load, dump } from 'js-yaml';
 
 export interface FormatOptions {
 	indentSize: number;
@@ -50,6 +51,27 @@ export function formatScore(source: string, options: Partial<FormatOptions> = {}
 				lines.push('---');
 				inContextBlock = !inContextBlock;
 				if (inContextBlock) indentLevel = 0;
+				break;
+
+			case 'YAML_CONTENT':
+				try {
+					// YAML doesn't like keys starting with & (reserved for anchors)
+					// but Scorelang use & for staves. We quote them for YAML parser.
+					const sanitizedValue = value.replace(/^(\s*)&([a-zA-Z0-9+]+):/gm, '$1"&$2":');
+					const doc = load(sanitizedValue);
+					if (doc && typeof doc === 'object') {
+						const formattedYaml = dump(doc, {
+							indent: opts.indentSize,
+							lineWidth: opts.maxLineLength
+						});
+						lines.push(formattedYaml.trim());
+					} else {
+						lines.push(value.trim());
+					}
+				} catch (e) {
+					// If YAML is invalid, keep as is
+					lines.push(value.trim());
+				}
 				break;
 
 			case 'STAVE_DECL':

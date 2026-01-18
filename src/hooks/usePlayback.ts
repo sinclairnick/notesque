@@ -1,11 +1,14 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import * as Tone from 'tone';
-import { parseScore } from '@/lib/score-parser';
-import type { Pitch, Duration } from '@/lib/score-types';
+import { Piano } from '@tonejs/piano';
+import { parseScoreToAST } from '@/lib/score-parser';
+import type { PitchNode, DurationNode } from '@/lib/score-ast';
 
 interface UsePlaybackReturn {
 	isPlaying: boolean;
 	isPaused: boolean;
+	isLoading: boolean;
+	isLoaded: boolean;
 	currentPosition: number;
 	tempo: number;
 
@@ -15,8 +18,8 @@ interface UsePlaybackReturn {
 	setTempo: (tempo: number) => void;
 }
 
-// Convert pitch to frequency
-function pitchToFrequency(pitch: Pitch): number {
+// Convert pitch to MIDI note number
+function pitchToMidi(pitch: PitchNode): number {
 	const noteMap: Record<string, number> = {
 		'C': 0, 'D': 2, 'E': 4, 'F': 5, 'G': 7, 'A': 9, 'B': 11
 	};
@@ -27,13 +30,11 @@ function pitchToFrequency(pitch: Pitch): number {
 	if (pitch.accidental === '##') semitone += 2;
 	if (pitch.accidental === 'bb') semitone -= 2;
 
-	// A4 = 440Hz, MIDI note 69
-	const midiNote = (pitch.octave + 1) * 12 + semitone;
-	return 440 * Math.pow(2, (midiNote - 69) / 12);
+	return (pitch.octave + 1) * 12 + semitone;
 }
 
 // Convert duration to seconds
-function durationToSeconds(duration: Duration, tempo: number): number {
+function durationToSeconds(duration: DurationNode, tempo: number): number {
 	const beatDuration = 60 / tempo; // Quarter note duration
 
 	const baseMultipliers: Record<string, number> = {
@@ -55,65 +56,95 @@ function durationToSeconds(duration: Duration, tempo: number): number {
 }
 
 // Extract notes from parsed score for playback
-function extractNotes(source: string, tempo: number): Array<{ frequencies: number[]; duration: number }> {
-	const result = parseScore(source);
-	if (!result.score) return [];
+interface PlaybackNote {
+	midiNotes: number[];
+	duration: number;
+	time: number;
+}
 
-	const notes: Array<{ frequencies: number[]; duration: number }> = [];
+function extractNotes(source: string, tempo: number): PlaybackNote[] {
+	const result = parseScoreToAST(source);
+	if (!result.ast) return [];
 
-	// For now, just use first staff
-	const staff = result.score.staves[0];
-	if (!staff) return [];
+	const allNotes: PlaybackNote[] = [];
 
-	for (const measure of staff.measures) {
-		for (const element of measure.elements) {
-			const duration = durationToSeconds(element.duration, tempo);
+	for (const staff of result.ast.staves) {
+		let currentTime = 0;
+		for (const measure of staff.measures) {
+			for (const element of measure.elements) {
+				const duration = durationToSeconds(element.duration, tempo);
 
-			switch (element.type) {
-				case 'rest':
-					notes.push({ frequencies: [], duration });
-					break;
-				case 'note':
-					notes.push({ frequencies: [pitchToFrequency(element.pitch)], duration });
-					break;
-				case 'chord':
-					notes.push({
-						frequencies: element.pitches.map(pitchToFrequency),
-						duration
-					});
-					break;
+				switch (element.kind) {
+					case 'Rest':
+						// Still add rest to tracking if we need it, but for piano playback we just skip
+						currentTime += duration;
+						break;
+					case 'Note':
+						allNotes.push({
+							midiNotes: [pitchToMidi(element.pitch)],
+							duration,
+							time: currentTime
+						});
+						currentTime += duration;
+						break;
+					case 'Chord':
+						allNotes.push({
+							midiNotes: element.pitches.map(pitchToMidi),
+							duration,
+							time: currentTime
+						});
+						currentTime += duration;
+						break;
+				}
 			}
 		}
 	}
 
-	return notes;
+	// Sort by time so progress tracking (setCurrentPosition) makes sense
+	return allNotes.sort((a, b) => a.time - b.time);
 }
 
 export function usePlayback(source: string, initialTempo: number = 120): UsePlaybackReturn {
 	const [isPlaying, setIsPlaying] = useState(false);
 	const [isPaused, setIsPaused] = useState(false);
+	const [isLoading, setIsLoading] = useState(false);
+	const [isLoaded, setIsLoaded] = useState(false);
 	const [currentPosition, setCurrentPosition] = useState(0);
 	const [tempo, setTempoState] = useState(initialTempo);
 
-	const synthRef = useRef<Tone.PolySynth | null>(null);
+	const pianoRef = useRef<Piano | null>(null);
 	const scheduledEventsRef = useRef<number[]>([]);
 	const startTimeRef = useRef<number>(0);
 	const pauseTimeRef = useRef<number>(0);
 
-	// Initialize synth
+	// Initialize piano instrument
 	useEffect(() => {
-		synthRef.current = new Tone.PolySynth(Tone.Synth, {
-			oscillator: { type: 'triangle' },
-			envelope: {
-				attack: 0.02,
-				decay: 0.1,
-				sustain: 0.3,
-				release: 0.4,
-			},
-		}).toDestination();
+		const loadPiano = async () => {
+			if (pianoRef.current) return;
+
+			setIsLoading(true);
+			try {
+				const piano = new Piano({
+					velocities: 5,
+				});
+
+				piano.toDestination();
+
+				await piano.load();
+
+				pianoRef.current = piano;
+				setIsLoaded(true);
+			} catch (error) {
+				console.error('Failed to load piano samples:', error);
+			} finally {
+				setIsLoading(false);
+			}
+		};
+
+		loadPiano();
 
 		return () => {
-			synthRef.current?.dispose();
+			pianoRef.current?.dispose();
 		};
 	}, []);
 
@@ -123,7 +154,7 @@ export function usePlayback(source: string, initialTempo: number = 120): UsePlay
 	}, []);
 
 	const play = useCallback(async () => {
-		if (!synthRef.current) return;
+		if (!pianoRef.current || !isLoaded) return;
 
 		// Start audio context if needed
 		await Tone.start();
@@ -135,36 +166,49 @@ export function usePlayback(source: string, initialTempo: number = 120): UsePlay
 
 		Tone.getTransport().bpm.value = tempo;
 
-		let time = isPaused ? pauseTimeRef.current : 0;
-		startTimeRef.current = Tone.now() - time;
+		const resumeTime = isPaused ? pauseTimeRef.current : 0;
+		startTimeRef.current = Tone.now() - resumeTime;
+
+		let maxTime = 0;
 
 		notes.forEach((note, index) => {
-			if (time < (isPaused ? pauseTimeRef.current : 0)) {
-				time += note.duration;
+			// Skip notes that already passed if we are resuming
+			if (note.time < resumeTime) {
 				return;
 			}
 
 			const eventId = Tone.getTransport().schedule((t) => {
-				if (note.frequencies.length > 0) {
-					synthRef.current?.triggerAttackRelease(note.frequencies, note.duration * 0.9, t);
+				if (note.midiNotes.length > 0) {
+					note.midiNotes.forEach(midi => {
+						const noteName = Tone.Frequency(midi, 'midi').toNote();
+						pianoRef.current?.keyDown({
+							note: noteName,
+							time: t,
+							velocity: 0.8
+						});
+						pianoRef.current?.keyUp({
+							note: noteName,
+							time: t + (note.duration * 0.9)
+						});
+					});
 				}
 				setCurrentPosition(index);
-			}, time);
+			}, note.time);
 
 			scheduledEventsRef.current.push(eventId);
-			time += note.duration;
+			maxTime = Math.max(maxTime, note.time + note.duration);
 		});
 
 		// Schedule stop at end
-		const endEventId = Tone.getTransport().schedule(() => {
-			stop();
-		}, time);
+		const endEventId = Tone.getTransport().schedule((t) => {
+			Tone.getTransport().scheduleOnce(() => stop(), t);
+		}, maxTime);
 		scheduledEventsRef.current.push(endEventId);
 
 		Tone.getTransport().start();
 		setIsPlaying(true);
 		setIsPaused(false);
-	}, [source, tempo, isPaused, clearScheduledEvents]);
+	}, [source, tempo, isPaused, isLoaded, clearScheduledEvents]);
 
 	const pause = useCallback(() => {
 		Tone.getTransport().pause();
@@ -190,6 +234,8 @@ export function usePlayback(source: string, initialTempo: number = 120): UsePlay
 	return {
 		isPlaying,
 		isPaused,
+		isLoading,
+		isLoaded,
 		currentPosition,
 		tempo,
 		play,
@@ -198,3 +244,4 @@ export function usePlayback(source: string, initialTempo: number = 120): UsePlay
 		setTempo,
 	};
 }
+

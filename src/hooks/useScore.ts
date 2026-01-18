@@ -1,11 +1,11 @@
 import { useState, useCallback, useRef } from 'react';
 import { DEFAULT_SCORE_TEMPLATE } from '@/lib/score-types';
-import { parseScore } from '@/lib/score-parser';
-import type { ParsedScore, ScoreMetadata } from '@/lib/score-types';
+import { parseScoreToAST } from '@/lib/score-parser';
+import type { ScoreNode, MetadataNode } from '@/lib/score-ast';
 
 interface ScoreState {
-	source: string;  // Raw .score text
-	parsed: ParsedScore | null;
+	source: string;
+	ast: ScoreNode | null;
 	isDirty: boolean;
 	history: string[];
 	historyIndex: number;
@@ -13,8 +13,8 @@ interface ScoreState {
 
 interface UseScoreReturn {
 	source: string;
-	parsed: ParsedScore | null;
-	metadata: ScoreMetadata;
+	ast: ScoreNode | null;
+	metadata: MetadataNode;
 	isDirty: boolean;
 
 	// Score operations
@@ -34,25 +34,27 @@ interface UseScoreReturn {
 
 const MAX_HISTORY = 50;
 
-const DEFAULT_METADATA: ScoreMetadata = {
+const DEFAULT_METADATA: MetadataNode = {
+	kind: 'Metadata',
+	loc: { line: 0, column: 0, start: 0, end: 0 },
 	title: 'Untitled',
 	key: 'C major',
-	time: { beats: 4, beatType: 4 },
+	time: { kind: 'TimeSignature', loc: { line: 0, column: 0, start: 0, end: 0 }, beats: 4, beatType: 4 },
 	tempo: 120,
 	defaultOctave: 4,
 };
 
-function parseAndCache(source: string): ParsedScore | null {
-	const result = parseScore(source);
-	return result.score;
+function parseAndCache(source: string): ScoreNode | null {
+	const { ast } = parseScoreToAST(source);
+	return ast;
 }
 
 export function useScore(): UseScoreReturn {
 	const [state, setState] = useState<ScoreState>(() => {
-		const parsed = parseAndCache(DEFAULT_SCORE_TEMPLATE);
+		const ast = parseAndCache(DEFAULT_SCORE_TEMPLATE);
 		return {
 			source: DEFAULT_SCORE_TEMPLATE,
-			parsed,
+			ast,
 			isDirty: false,
 			history: [DEFAULT_SCORE_TEMPLATE],
 			historyIndex: 0,
@@ -63,7 +65,7 @@ export function useScore(): UseScoreReturn {
 	const updateTimeoutRef = useRef<number | undefined>(undefined);
 
 	const setSource = useCallback((source: string) => {
-		const parsed = parseAndCache(source);
+		const ast = parseAndCache(source);
 		setState(prev => {
 			const newHistory = prev.history.slice(0, prev.historyIndex + 1);
 			newHistory.push(source);
@@ -72,7 +74,7 @@ export function useScore(): UseScoreReturn {
 			}
 			return {
 				source,
-				parsed,
+				ast,
 				isDirty: true,
 				history: newHistory,
 				historyIndex: newHistory.length - 1,
@@ -87,13 +89,13 @@ export function useScore(): UseScoreReturn {
 		}
 
 		// Parse immediately for responsive updates
-		const parsed = parseAndCache(source);
+		const ast = parseAndCache(source);
 
 		// Update state immediately
 		setState(prev => ({
 			...prev,
 			source,
-			parsed,
+			ast,
 			isDirty: true,
 		}));
 
@@ -118,10 +120,10 @@ export function useScore(): UseScoreReturn {
 	}, []);
 
 	const newScore = useCallback(() => {
-		const parsed = parseAndCache(DEFAULT_SCORE_TEMPLATE);
+		const ast = parseAndCache(DEFAULT_SCORE_TEMPLATE);
 		setState({
 			source: DEFAULT_SCORE_TEMPLATE,
-			parsed,
+			ast,
 			isDirty: false,
 			history: [DEFAULT_SCORE_TEMPLATE],
 			historyIndex: 0,
@@ -133,11 +135,11 @@ export function useScore(): UseScoreReturn {
 			if (prev.historyIndex <= 0) return prev;
 			const newIndex = prev.historyIndex - 1;
 			const source = prev.history[newIndex];
-			const parsed = parseAndCache(source);
+			const ast = parseAndCache(source);
 			return {
 				...prev,
 				source,
-				parsed,
+				ast,
 				historyIndex: newIndex,
 				isDirty: true,
 			};
@@ -149,11 +151,11 @@ export function useScore(): UseScoreReturn {
 			if (prev.historyIndex >= prev.history.length - 1) return prev;
 			const newIndex = prev.historyIndex + 1;
 			const source = prev.history[newIndex];
-			const parsed = parseAndCache(source);
+			const ast = parseAndCache(source);
 			return {
 				...prev,
 				source,
-				parsed,
+				ast,
 				historyIndex: newIndex,
 				isDirty: true,
 			};
@@ -165,11 +167,11 @@ export function useScore(): UseScoreReturn {
 	}, []);
 
 	// Extract metadata from parsed score or use defaults
-	const metadata = state.parsed?.metadata || DEFAULT_METADATA;
+	const metadata = state.ast?.metadata || DEFAULT_METADATA;
 
 	return {
 		source: state.source,
-		parsed: state.parsed,
+		ast: state.ast,
 		metadata,
 		isDirty: state.isDirty,
 		updateSource,

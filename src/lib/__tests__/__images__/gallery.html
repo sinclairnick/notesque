@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Scorelang Visual Test Gallery</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 20px;
+      background: #f5f5f5;
+    }
+    h1 { color: #333; margin-bottom: 30px; }
+    h2 { color: #555; margin: 20px 0 10px 0; font-size: 18px; }
+    .gallery {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(600px, 1fr));
+      gap: 20px;
+    }
+    .card {
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      overflow: hidden;
+    }
+    .card-header {
+      background: #333;
+      color: white;
+      padding: 10px 15px;
+      font-weight: bold;
+    }
+    .card-body {
+      padding: 15px;
+      background: white;
+      min-height: 150px;
+    }
+    .card-body svg {
+      max-width: 100%;
+      height: auto;
+      display: block;
+    }
+    .status {
+      padding: 5px 10px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: bold;
+    }
+    .status.pass { background: #d4edda; color: #155724; }
+    .status.fail { background: #f8d7da; color: #721c24; }
+    .status.pending { background: #fff3cd; color: #856404; }
+    .legend {
+      margin-bottom: 20px;
+      padding: 15px;
+      background: white;
+      border-radius: 8px;
+    }
+    .legend h3 { margin-top: 0; }
+  </style>
+</head>
+<body>
+  <h1>📋 Scorelang Visual Test Gallery</h1>
+  
+  <div class="legend">
+    <h3>Instructions</h3>
+    <p>This page displays all rendered sheet music from the visual tests. Review each image to verify correctness:</p>
+    <ul>
+      <li><strong>Clefs</strong>: Bass clef (two dots on line 4), Treble clef (curly G shape)</li>
+      <li><strong>Notes</strong>: Check stems, noteheads, ledger lines</li>
+      <li><strong>Dynamics</strong>: pp, p, mp, mf, f, ff symbols below notes</li>
+      <li><strong>Articulations</strong>: Staccato dots, accent marks, etc.</li>
+      <li><strong>Slurs</strong>: Curved lines connecting notes</li>
+      <li><strong>Crescendo/Decrescendo</strong>: Hairpin wedges</li>
+    </ul>
+  </div>
+
+  <div class="gallery">
+    <div class="card">
+      <div class="card-header">Bass Clef</div>
+      <div class="card-body">
+        <object type="image/svg+xml" data="clef_bass.svg" width="100%"></object>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">Treble Clef</div>
+      <div class="card-body">
+        <object type="image/svg+xml" data="clef_treble.svg" width="100%"></object>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">Grand Staff (Both Clefs)</div>
+      <div class="card-body">
+        <object type="image/svg+xml" data="clef_grand_staff.svg" width="100%"></object>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">Dynamics (ppp, pp, p, mp, mf, f, ff, fff)</div>
+      <div class="card-body">
+        <object type="image/svg+xml" data="dynamics_all.svg" width="100%"></object>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">Articulations (staccato, tenuto, accent, marcato, fermata, trill)</div>
+      <div class="card-body">
+        <object type="image/svg+xml" data="articulations_all.svg" width="100%"></object>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">Slurs</div>
+      <div class="card-body">
+        <object type="image/svg+xml" data="slur_basic.svg" width="100%"></object>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">Crescendo Wedge</div>
+      <div class="card-body">
+        <object type="image/svg+xml" data="cresc_basic.svg" width="100%"></object>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">Decrescendo Wedge</div>
+      <div class="card-body">
+        <object type="image/svg+xml" data="decresc_basic.svg" width="100%"></object>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">Chords</div>
+      <div class="card-body">
+        <object type="image/svg+xml" data="chords_basic.svg" width="100%"></object>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">Accidentals (Sharps & Flats)</div>
+      <div class="card-body">
+        <object type="image/svg+xml" data="accidentals_basic.svg" width="100%"></object>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">Double Accidentals (## and bb)</div>
+      <div class="card-body">
+        <object type="image/svg+xml" data="accidentals_double.svg" width="100%"></object>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">All Durations</div>
+      <div class="card-body">
+        <object type="image/svg+xml" data="durations_all.svg" width="100%"></object>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">Dotted Notes</div>
+      <div class="card-body">
+        <object type="image/svg+xml" data="durations_dotted.svg" width="100%"></object>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">Complete Example</div>
+      <div class="card-body">
+        <object type="image/svg+xml" data="complete_example.svg" width="100%"></object>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Check if all SVGs loaded successfully
+    document.querySelectorAll('object').forEach(obj => {
+      obj.onerror = () => {
+        obj.parentElement.innerHTML = '<p style="color:red">SVG failed to load</p>';
+      };
+    });
+  </script>
+</body>
+</html>

@@ -1,7 +1,7 @@
 // Scorelang v2.0 Comprehensive Lexer Tests
 
 import { describe, it, expect } from 'vitest';
-import { tokenize, type Token, type TokenType } from '../score-lexer';
+import { tokenize, type TokenType } from '../score-lexer';
 
 // Helper to extract token types (filtering whitespace/newlines)
 function getTokenTypes(source: string): TokenType[] {
@@ -30,22 +30,26 @@ describe('Lexer: Context Blocks', () => {
 		expect(types.filter(t => t === 'CONTEXT_DELIM')).toHaveLength(2);
 	});
 
-	it('tokenizes context key-value pairs', () => {
+	it('tokenizes context content as YAML_CONTENT', () => {
 		const tokens = getTokens('---\ntempo: 120\nkey: C\n---');
-		expect(tokens).toContainEqual({ type: 'CONTEXT_KEY', value: 'tempo' });
-		expect(tokens).toContainEqual({ type: 'CONTEXT_VALUE', value: '120' });
-		expect(tokens).toContainEqual({ type: 'CONTEXT_KEY', value: 'key' });
-		expect(tokens).toContainEqual({ type: 'CONTEXT_VALUE', value: 'C' });
+		expect(tokens).toContainEqual(expect.objectContaining({ type: 'YAML_CONTENT' }));
+		const yamlToken = tokens.find(t => t.type === 'YAML_CONTENT');
+		expect(yamlToken?.value).toContain('tempo: 120');
+		expect(yamlToken?.value).toContain('key: C');
 	});
 
-	it('tokenizes stave declarations with &', () => {
+	it('tokenizes stave declarations in context as YAML_CONTENT', () => {
 		const tokens = getTokens('---\n&right:\n  clef: treble\n---');
-		expect(tokens).toContainEqual({ type: 'STAVE_DECL', value: '&right' });
+		expect(tokens).toContainEqual(expect.objectContaining({ type: 'YAML_CONTENT' }));
+		const yamlToken = tokens.find(t => t.type === 'YAML_CONTENT');
+		expect(yamlToken?.value).toContain('&right:');
+		expect(yamlToken?.value).toContain('clef: treble');
 	});
 
-	it('tokenizes stave declarations with voice (+)', () => {
+	it('tokenizes multi-voice stave declarations in context', () => {
 		const tokens = getTokens('---\n&right+alto:\n  clef: treble\n---');
-		expect(tokens).toContainEqual({ type: 'STAVE_DECL', value: '&right+alto' });
+		const yamlToken = tokens.find(t => t.type === 'YAML_CONTENT');
+		expect(yamlToken?.value).toContain('&right+alto:');
 	});
 
 	it('handles multiple context blocks', () => {
@@ -55,12 +59,14 @@ describe('Lexer: Context Blocks', () => {
 
 	it('handles context with time signature', () => {
 		const tokens = getTokens('---\ntime: 3/4\n---');
-		expect(tokens).toContainEqual({ type: 'CONTEXT_VALUE', value: '3/4' });
+		const yamlToken = tokens.find(t => t.type === 'YAML_CONTENT');
+		expect(yamlToken?.value).toContain('time: 3/4');
 	});
 
 	it('handles quoted context values', () => {
 		const tokens = getTokens('---\ntitle: "My Song"\n---');
-		expect(tokens).toContainEqual({ type: 'CONTEXT_VALUE', value: '"My Song"' });
+		const yamlToken = tokens.find(t => t.type === 'YAML_CONTENT');
+		expect(yamlToken?.value).toContain('title: "My Song"');
 	});
 });
 

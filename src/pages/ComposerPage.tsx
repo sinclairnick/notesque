@@ -2,13 +2,16 @@ import { useState, useCallback, useEffect } from 'react';
 import {
 	Play, Pause, Square, RotateCcw, RotateCw,
 	Plus, FolderOpen, Save, Download,
-	Music, FileText, Keyboard
+	Music, FileText, Keyboard, Wand2, Loader2
 } from 'lucide-react';
 import { SheetMusicRenderer } from '@/components/composer/SheetMusicRenderer';
 import { ScoreEditor } from '@/components/composer/ScoreEditor';
+import { DraggableNumberInput } from '@/components/ui/draggable-number-input';
+import { TooltipButton } from '@/components/ui/tooltip';
 import { useScore } from '@/hooks/useScore';
 import { usePlayback } from '@/hooks/usePlayback';
 import { useFileSystem } from '@/hooks/useFileSystem';
+import { formatScore } from '@/lib/score-formatter';
 
 export function ComposerPage() {
 	const {
@@ -26,6 +29,8 @@ export function ComposerPage() {
 
 	const {
 		isPlaying,
+		isLoading,
+		isLoaded,
 		currentPosition,
 		tempo,
 		play,
@@ -49,9 +54,9 @@ export function ComposerPage() {
 					case 's':
 						e.preventDefault();
 						if (e.shiftKey) {
-							saveFileAs(source, metadata.title);
+							saveFileAs(source, metadata.title ?? 'Untitled');
 						} else {
-							saveFile(source, metadata.title);
+							saveFile(source, metadata.title ?? 'Untitled');
 						}
 						break;
 					case 'o':
@@ -111,6 +116,15 @@ export function ComposerPage() {
 		}
 	}, [isDirty, openFile, setSource]);
 
+	const handleFormat = useCallback(() => {
+		try {
+			const formatted = formatScore(source);
+			setSource(formatted);
+		} catch (err) {
+			console.error('Formatting error:', err);
+		}
+	}, [source, setSource]);
+
 	const handlePlayPause = useCallback(() => {
 		if (isPlaying) {
 			pause();
@@ -147,34 +161,37 @@ export function ComposerPage() {
 
 				{/* File actions */}
 				<div className="flex items-center gap-1">
-					<button
+					<TooltipButton
 						onClick={handleNew}
 						className="p-2 hover:bg-accent rounded-md transition-colors"
-						title="New (Ctrl+N)"
+						tooltip="New"
+						shortcut="⌘N"
 					>
 						<Plus className="w-4 h-4" />
-					</button>
-					<button
+					</TooltipButton>
+					<TooltipButton
 						onClick={handleOpen}
 						className="p-2 hover:bg-accent rounded-md transition-colors"
-						title="Open (Ctrl+O)"
+						tooltip="Open"
+						shortcut="⌘O"
 					>
 						<FolderOpen className="w-4 h-4" />
-					</button>
-					<button
-						onClick={() => saveFile(source, metadata.title)}
+					</TooltipButton>
+					<TooltipButton
+						onClick={() => saveFile(source, metadata.title ?? 'Untitled')}
 						className="p-2 hover:bg-accent rounded-md transition-colors"
-						title="Save (Ctrl+S)"
+						tooltip="Save"
+						shortcut="⌘S"
 					>
 						<Save className="w-4 h-4" />
-					</button>
-					<button
-						onClick={() => exportAsScore(source, metadata.title)}
+					</TooltipButton>
+					<TooltipButton
+						onClick={() => exportAsScore(source, metadata.title ?? 'Untitled')}
 						className="p-2 hover:bg-accent rounded-md transition-colors"
-						title="Export .score"
+						tooltip="Export .score"
 					>
 						<Download className="w-4 h-4" />
-					</button>
+					</TooltipButton>
 				</div>
 
 				{/* Divider */}
@@ -182,22 +199,33 @@ export function ComposerPage() {
 
 				{/* Undo/Redo */}
 				<div className="flex items-center gap-1">
-					<button
+					<TooltipButton
 						onClick={undo}
 						disabled={!canUndo}
 						className="p-2 hover:bg-accent rounded-md transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-						title="Undo (Ctrl+Z)"
+						tooltip="Undo"
+						shortcut="⌘Z"
 					>
 						<RotateCcw className="w-4 h-4" />
-					</button>
-					<button
+					</TooltipButton>
+					<TooltipButton
 						onClick={redo}
 						disabled={!canRedo}
 						className="p-2 hover:bg-accent rounded-md transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-						title="Redo (Ctrl+Shift+Z)"
+						tooltip="Redo"
+						shortcut="⇧⌘Z"
 					>
 						<RotateCw className="w-4 h-4" />
-					</button>
+					</TooltipButton>
+
+					<TooltipButton
+						onClick={handleFormat}
+						className="p-2 hover:bg-accent rounded-md transition-colors"
+						tooltip="Format Score"
+						shortcut="⌘B"
+					>
+						<Wand2 className="w-4 h-4" />
+					</TooltipButton>
 				</div>
 
 				{/* Divider */}
@@ -205,35 +233,47 @@ export function ComposerPage() {
 
 				{/* Playback controls */}
 				<div className="flex items-center gap-1">
-					<button
+					{!isLoaded && (
+						<div className="flex items-center gap-2 px-3 text-xs text-muted-foreground animate-pulse">
+							<Loader2 className="w-3 h-3 animate-spin" />
+							<span>Loading Piano Samples...</span>
+						</div>
+					)}
+					<TooltipButton
 						onClick={stop}
 						className="p-2 hover:bg-accent rounded-md transition-colors"
-						title="Stop"
+						tooltip="Stop"
 					>
 						<Square className="w-4 h-4" />
-					</button>
-					<button
+					</TooltipButton>
+					<TooltipButton
 						onClick={handlePlayPause}
-						className="p-2.5 bg-primary text-primary-foreground hover:bg-primary/90 rounded-md transition-colors"
-						title={isPlaying ? 'Pause (Space)' : 'Play (Space)'}
+						disabled={!isLoaded}
+						className="p-2.5 bg-primary text-primary-foreground hover:bg-primary/90 rounded-md transition-colors disabled:opacity-50 disabled:cursor-wait"
+						tooltip={isPlaying ? 'Pause' : (isLoading ? 'Loading...' : 'Play')}
+						shortcut="Space"
 					>
-						{isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-					</button>
+						{isPlaying ? (
+							<Pause className="w-4 h-4" />
+						) : isLoading ? (
+							<Loader2 className="w-4 h-4 animate-spin" />
+						) : (
+							<Play className="w-4 h-4" />
+						)}
+					</TooltipButton>
 				</div>
 
-				{/* Tempo slider */}
-				<div className="flex items-center gap-2 ml-2">
-					<span className="text-sm text-muted-foreground w-8">{tempo}</span>
-					<input
-						type="range"
-						min={40}
-						max={240}
-						value={tempo}
-						onChange={(e) => setTempo(parseInt(e.target.value))}
-						className="w-24 h-1 bg-border rounded-full accent-primary cursor-pointer"
-					/>
-					<span className="text-xs text-muted-foreground">BPM</span>
-				</div>
+				{/* Tempo control */}
+				<DraggableNumberInput
+					value={tempo}
+					onChange={setTempo}
+					min={40}
+					max={240}
+					step={1}
+					shiftStep={10}
+					unit="BPM"
+					className="ml-2"
+				/>
 
 				{/* Spacer */}
 				<div className="flex-1" />
@@ -249,20 +289,22 @@ export function ComposerPage() {
 
 				{/* View toggles */}
 				<div className="flex items-center gap-1">
-					<button
+					<TooltipButton
 						onClick={() => setShowVisualEditor(!showVisualEditor)}
 						className={`p-2 rounded-md transition-colors ${showVisualEditor ? 'bg-accent text-accent-foreground' : 'hover:bg-accent'}`}
-						title="Toggle Visual Editor (Ctrl+1)"
+						tooltip="Toggle Visual Editor"
+						shortcut="⌘1"
 					>
 						<Music className="w-4 h-4" />
-					</button>
-					<button
+					</TooltipButton>
+					<TooltipButton
 						onClick={() => setShowTextEditor(!showTextEditor)}
 						className={`p-2 rounded-md transition-colors ${showTextEditor ? 'bg-accent text-accent-foreground' : 'hover:bg-accent'}`}
-						title="Toggle Text Editor (Ctrl+2)"
+						tooltip="Toggle Text Editor"
+						shortcut="⌘2"
 					>
 						<FileText className="w-4 h-4" />
-					</button>
+					</TooltipButton>
 				</div>
 			</header>
 
@@ -338,8 +380,8 @@ export function ComposerPage() {
 			{/* Footer / Status bar */}
 			<footer className="flex-none h-8 px-4 flex items-center justify-between text-xs text-muted-foreground border-t border-border bg-card">
 				<div className="flex items-center gap-4">
-					<span>Key: {metadata.key}</span>
-					<span>Time: {metadata.time.beats}/{metadata.time.beatType}</span>
+					<span>Key: {metadata.key ?? 'C major'}</span>
+					<span>Time: {metadata.time?.beats ?? 4}/{metadata.time?.beatType ?? 4}</span>
 					<span>Tempo: {metadata.tempo} BPM</span>
 				</div>
 				<div className="flex items-center gap-4">

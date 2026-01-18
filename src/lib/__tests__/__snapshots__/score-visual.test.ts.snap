@@ -1,0 +1,26 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`Visual: OSMD Rendering > SVG Snapshots > basic notes structure snapshot > basic-notes-structure 1`] = `
+[
+  "paths: 28",
+]
+`;
+
+exports[`Visual: OSMD Rendering > SVG Snapshots > chord structure snapshot > chords-structure 1`] = `
+[
+  "paths: 13",
+]
+`;
+
+exports[`Visual: OSMD Rendering > SVG Snapshots > complete example structure snapshot > complete-example-structure 1`] = `
+[
+  "paths: 81",
+  "text-elements: 1",
+]
+`;
+
+exports[`Visual: OSMD Rendering > SVG Snapshots > two staves structure snapshot > two-staves-structure 1`] = `
+[
+  "paths: 41",
+]
+`;

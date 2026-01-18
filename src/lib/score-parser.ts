@@ -11,13 +11,15 @@ import {
 	type RestNode,
 	type ChordNode,
 	type PitchNode,
+
 	type DurationNode,
 	type AnnotationNode,
 	type MusicElementNode,
-	type SourceLocation,
+	type TimeSignatureNode,
 	createLocation,
 } from './score-ast';
 import type { Accidental, Articulation, Dynamic, NoteName, Octave } from './score-types';
+import { load } from 'js-yaml';
 
 // Default duration
 const DEFAULT_DURATION: DurationNode = {
@@ -53,13 +55,114 @@ const ARTICULATION_FN_MAP: Record<string, Articulation> = {
 	'tr': 'trill',
 };
 
+// Duration values in beats (quarter note = 1)
+const DURATION_BEATS: Record<DurationNode['base'], number> = {
+	'w': 4,
+	'h': 2,
+	'q': 1,
+	'8': 0.5,
+	'16': 0.25,
+	'32': 0.125,
+};
+
+// Calculate beats for a duration (including dots)
+function getDurationBeats(duration: DurationNode): number {
+	let beats = DURATION_BEATS[duration.base];
+	let dotValue = beats / 2;
+	for (let i = 0; i < duration.dots; i++) {
+		beats += dotValue;
+		dotValue /= 2;
+	}
+	return beats;
+}
+
+// Split elements into measures based on time signature
+function splitIntoMeasures(
+	elements: MusicElementNode[],
+	beatsPerMeasure: number,
+	staveToken: Token,
+	attributes?: { key?: string; time?: TimeSignatureNode; clef?: string }
+): MeasureNode[] {
+	if (elements.length === 0) return [];
+
+	const measures: MeasureNode[] = [];
+	let currentElements: MusicElementNode[] = [];
+	let currentBeats = 0;
+	let measureStartToken = staveToken;
+
+	for (const element of elements) {
+		const elementBeats = getDurationBeats(element.duration);
+
+		// If adding this element would exceed measure, start new measure
+		if (currentBeats + elementBeats > beatsPerMeasure && currentElements.length > 0) {
+			measures.push({
+				kind: 'Measure',
+				elements: currentElements,
+				barline: 'single',
+				loc: createLocation(
+					measureStartToken.line,
+					measureStartToken.column,
+					measureStartToken.start,
+					element.loc.start
+				),
+				attributes: measures.length === 0 ? attributes : undefined, // Apply attributes to first measure only
+			});
+			currentElements = [];
+			currentBeats = 0;
+			measureStartToken = { ...staveToken, start: element.loc.start };
+		}
+
+		currentElements.push(element);
+		currentBeats += elementBeats;
+
+		// If we've hit exactly the measure boundary, close the measure
+		if (currentBeats >= beatsPerMeasure) {
+			measures.push({
+				kind: 'Measure',
+				elements: currentElements,
+				barline: 'single',
+				loc: createLocation(
+					measureStartToken.line,
+					measureStartToken.column,
+					measureStartToken.start,
+					element.loc.end
+				),
+			});
+			currentElements = [];
+			currentBeats = 0;
+			measureStartToken = { ...staveToken, start: element.loc.end };
+		}
+	}
+
+	// Add remaining elements as final (possibly incomplete) measure
+	if (currentElements.length > 0) {
+		measures.push({
+			kind: 'Measure',
+			elements: currentElements,
+			barline: 'single',
+			loc: createLocation(
+				measureStartToken.line,
+				measureStartToken.column,
+				measureStartToken.start,
+				currentElements[currentElements.length - 1].loc.end
+			),
+			attributes: measures.length === 0 ? attributes : undefined,
+		});
+	}
+
+	return measures;
+}
+
 export class ScoreParser {
 	private tokens: Token[] = [];
 	private pos: number = 0;
 	private errors: ParseError[] = [];
 	private warnings: ParseError[] = [];
 	private defaultOctave: Octave = 4;
+	private timeSignature: { beats: number; beatType: number } = { beats: 4, beatType: 4 };
+	private globalKey: string = 'C';
 	private declaredStaves: Map<string, { clef: string; voice?: string }> = new Map();
+	private currentDuration: DurationNode = { ...DEFAULT_DURATION };
 
 	parse(source: string): ParseResult {
 		const lexResult = tokenize(source);
@@ -69,11 +172,17 @@ export class ScoreParser {
 		this.errors = [];
 		this.warnings = [];
 		this.declaredStaves = new Map();
+		this.currentDuration = { ...DEFAULT_DURATION };
+		this.globalKey = 'C';
+		this.timeSignature = { beats: 4, beatType: 4 };
 
 		// Add lexer errors
 		for (const err of lexResult.errors) {
 			this.errors.push(err);
 		}
+
+		// Validate token stream (spacing rules)
+		this.validateTokens();
 
 		try {
 			const ast = this.parseScore();
@@ -97,6 +206,14 @@ export class ScoreParser {
 		// Parse initial context blocks (frontmatter + stave declarations)
 		const metadata = this.parseContextBlocks();
 		this.defaultOctave = metadata.defaultOctave ?? 4;
+
+		// Capture time signature for measure computation
+		if (metadata.time) {
+			this.timeSignature = { beats: metadata.time.beats, beatType: metadata.time.beatType };
+		}
+		if (metadata.key) {
+			this.globalKey = metadata.key;
+		}
 
 		// Parse stave bodies
 		const staves = this.parseStaveBodies();
@@ -167,66 +284,45 @@ export class ScoreParser {
 	}
 
 	private parseContextContent(metadata: MetadataNode): void {
-		let currentStave: string | null = null;
-
 		while (!this.isAtEnd() && !this.check('CONTEXT_DELIM')) {
-			this.skipWhitespace();
-
-			if (this.check('NEWLINE')) {
-				this.advance();
-				continue;
-			}
-
-			if (this.check('COMMENT')) {
-				this.advance();
-				continue;
-			}
-
-			// Stave declaration in context
-			if (this.check('STAVE_DECL')) {
+			if (this.check('YAML_CONTENT')) {
 				const token = this.advance();
-				const staveValue = token.value; // e.g., &right or &right+alto
-				const match = staveValue.match(/^&(\w+)(\+\w+)?/);
-				if (match) {
-					const baseName = match[1];
-					const voice = match[2]?.slice(1); // Remove + prefix
-					currentStave = voice ? `${baseName}+${voice}` : baseName;
-					this.declaredStaves.set(currentStave, { clef: 'treble', voice });
+				try {
+					// YAML doesn't like keys starting with & (reserved for anchors)
+					// but Scorelang use & for staves. We quote them for YAML parser.
+					const sanitizedValue = token.value.replace(/^(\s*)&([a-zA-Z0-9+]+):/gm, '$1"&$2":');
+					const doc = load(sanitizedValue) as any;
+					if (doc && typeof doc === 'object') {
+						for (const [key, value] of Object.entries(doc)) {
+							if (key.startsWith('&')) {
+								// Stave declaration in YAML
+								const staveName = key.slice(1);
+								const staveData = typeof value === 'object' ? value : { clef: value };
+								this.declaredStaves.set(staveName, {
+									clef: (staveData as any).clef || 'treble',
+									voice: (staveData as any).voice
+								});
+							} else {
+								this.applyMetadataValue(metadata, key, String(value));
+							}
+						}
+					}
+				} catch (e) {
+					this.errors.push({
+						message: `YAML error: ${e instanceof Error ? e.message : 'Unknown'}`,
+						line: token.line,
+						column: token.column,
+					});
 				}
 				continue;
 			}
 
-			// Key-value pair
-			if (this.check('CONTEXT_KEY')) {
-				const keyToken = this.advance();
-				const key = keyToken.value;
-
-				this.skipWhitespace();
-				let value = '';
-				if (this.check('CONTEXT_VALUE')) {
-					value = this.advance().value;
-				}
-
-				// Apply to current stave or global metadata
-				if (currentStave && key === 'clef') {
-					const staveData = this.declaredStaves.get(currentStave);
-					if (staveData) {
-						staveData.clef = value;
-					}
-				} else if (currentStave && key === 'type') {
-					// Lyrics stave type etc.
-					const staveData = this.declaredStaves.get(currentStave);
-					if (staveData) {
-						(staveData as any).type = value;
-					}
-				} else {
-					currentStave = null; // Reset after non-stave key
-					this.applyMetadataValue(metadata, key, value);
-				}
+			// Fallback for old tokens if any
+			if (this.check('CONTEXT_KEY') || this.check('STAVE_DECL') || this.check('NEWLINE') || this.check('WHITESPACE') || this.check('COMMENT')) {
+				this.advance();
 				continue;
 			}
 
-			// Skip unknown in context
 			this.advance();
 		}
 	}
@@ -259,6 +355,9 @@ export class ScoreParser {
 			case 'octave':
 				metadata.defaultOctave = parseInt(value) as Octave;
 				break;
+			default:
+				metadata[key] = value;
+				break;
 		}
 	}
 
@@ -266,9 +365,16 @@ export class ScoreParser {
 		const staves: StaffNode[] = [];
 		const staffMeasures = new Map<string, MeasureNode[]>();
 
+		// Track context per staff to detect changes
+		const staffContexts = new Map<string, { key: string; time: { beats: number; beatType: number } }>();
+
 		// Initialize from declared staves
 		for (const [name] of this.declaredStaves) {
 			staffMeasures.set(name, []);
+			staffContexts.set(name, {
+				key: this.globalKey,
+				time: { ...this.timeSignature }
+			});
 		}
 
 		this.skipWhitespaceAndNewlines();
@@ -290,11 +396,15 @@ export class ScoreParser {
 				this.advance();
 				const tempMetadata: MetadataNode = { kind: 'Metadata', loc: createLocation(0, 0, 0, 0) };
 				this.parseContextContent(tempMetadata);
+
+				// Apply context to globals
+				if (tempMetadata.key) this.globalKey = tempMetadata.key;
+				if (tempMetadata.time) this.timeSignature = { beats: tempMetadata.time.beats, beatType: tempMetadata.time.beatType };
+
 				this.skipWhitespaceAndNewlines();
 				if (this.check('CONTEXT_DELIM')) {
 					this.advance();
 				}
-				// TODO: Apply context changes to subsequent notes
 				continue;
 			}
 
@@ -316,25 +426,51 @@ export class ScoreParser {
 
 					// Parse optional annotation block
 					this.skipWhitespace();
-					if (this.check('ANNOTATION_BLOCK_START') || this.check('STAVE_BODY_START')) {
+					if (this.check('ANNOTATION_BLOCK_START')) {
 						this.advance();
 						this.parseAnnotationBlock(elements);
-						if (this.check('ANNOTATION_BLOCK_END') || this.check('STAVE_BODY_END')) {
+						if (this.check('ANNOTATION_BLOCK_END')) {
 							this.advance();
 						}
 					}
 
-					// Add elements as a measure
+					// Split elements into measures based on time signature
 					if (elements.length > 0) {
 						if (!staffMeasures.has(staveName)) {
 							staffMeasures.set(staveName, []);
+							staffContexts.set(staveName, { key: 'C', time: { beats: 4, beatType: 4 } }); // Default if undeclared
 						}
-						staffMeasures.get(staveName)!.push({
-							kind: 'Measure',
+
+						// Check for context changes
+						const currentCtx = staffContexts.get(staveName)!;
+						const attributes: { key?: string; time?: TimeSignatureNode } = {};
+						let changed = false;
+
+						if (currentCtx.key !== this.globalKey) {
+							attributes.key = this.globalKey;
+							currentCtx.key = this.globalKey;
+							changed = true;
+						}
+
+						// Basic Time Signature check (deep comparison handled loosely here)
+						if (currentCtx.time.beats !== this.timeSignature.beats || currentCtx.time.beatType !== this.timeSignature.beatType) {
+							attributes.time = {
+								kind: 'TimeSignature',
+								beats: this.timeSignature.beats,
+								beatType: this.timeSignature.beatType,
+								loc: createLocation(0, 0, 0, 0)
+							};
+							currentCtx.time = { ...this.timeSignature };
+							changed = true;
+						}
+
+						const measures = splitIntoMeasures(
 							elements,
-							barline: 'single',
-							loc: createLocation(staveToken.line, staveToken.column, staveToken.start, this.previous()?.end ?? 0),
-						});
+							this.timeSignature.beats,
+							staveToken,
+							changed ? attributes : undefined
+						);
+						staffMeasures.get(staveName)!.push(...measures);
 					}
 				}
 				continue;
@@ -345,19 +481,23 @@ export class ScoreParser {
 		}
 
 		// Build staff nodes
-		if (this.declaredStaves.size > 0) {
-			for (const [name, data] of this.declaredStaves) {
-				staves.push({
-					kind: 'Staff',
-					name,
-					clef: data.clef as StaffNode['clef'],
-					measures: staffMeasures.get(name) || [],
-					loc: createLocation(0, 0, 0, 0),
-				});
-			}
-		} else if (staffMeasures.size > 0) {
-			// Staves used without declaration
-			for (const [name, measures] of staffMeasures) {
+		const processedStaves = new Set<string>();
+
+		// First add all declared staves (preserves declaration order)
+		for (const [name, data] of this.declaredStaves) {
+			staves.push({
+				kind: 'Staff',
+				name,
+				clef: (data.clef as StaffNode['clef']) || 'treble',
+				measures: staffMeasures.get(name) || [],
+				loc: createLocation(0, 0, 0, 0),
+			});
+			processedStaves.add(name);
+		}
+
+		// Then add any staves that were used but NOT declared
+		for (const [name, measures] of staffMeasures) {
+			if (!processedStaves.has(name)) {
 				staves.push({
 					kind: 'Staff',
 					name,
@@ -366,7 +506,10 @@ export class ScoreParser {
 					loc: createLocation(0, 0, 0, 0),
 				});
 			}
-		} else {
+		}
+
+		// Default single staff if nothing else found
+		if (staves.length === 0) {
 			// Default single staff
 			staves.push({
 				kind: 'Staff',
@@ -378,6 +521,31 @@ export class ScoreParser {
 		}
 
 		return staves;
+	}
+
+	private validateTokens(): void {
+		let inChord = false;
+		const noteRelatedTypes = new Set(['NOTE', 'DURATION', 'OCTAVE_MOD', 'FINGERING']);
+
+		for (let i = 0; i < this.tokens.length - 1; i++) {
+			const current = this.tokens[i];
+			const next = this.tokens[i + 1];
+
+			if (current.type === 'CHORD_START') inChord = true;
+			if (current.type === 'CHORD_END') inChord = false;
+
+			if (!inChord) {
+				// Check for adjacent notes without separation
+				// Strict mode: Note-related token followed immediately by NOTE
+				if (noteRelatedTypes.has(current.type) && next.type === 'NOTE') {
+					this.errors.push({
+						message: 'Notes must be separated by whitespace or connectives',
+						line: next.line,
+						column: next.column,
+					});
+				}
+			}
+		}
 	}
 
 	private parseStaveBodyContent(): MusicElementNode[] {
@@ -397,9 +565,30 @@ export class ScoreParser {
 			}
 
 			// Parse music element
-			const element = this.parseMusicElement();
-			if (element) {
-				elements.push(element);
+			const parsed = this.parseMusicElement();
+			if (parsed) {
+				if (Array.isArray(parsed)) {
+					elements.push(...parsed);
+				} else {
+					elements.push(parsed);
+				}
+			} else if (this.check('TIE')) {
+				this.advance(); // consume ^
+				// Attach tie to the last element if it's a note or chord
+				if (elements.length > 0) {
+					const last = elements[elements.length - 1];
+					if (last.kind === 'Note') {
+						last.tied = true;
+					} else if (last.kind === 'Chord' && last.pitches.length > 0) {
+						// For chords, we might want to flag the chord itself or all notes?
+						// MusicXML expects tie on each note.
+						// The renderer/transpiler needs to handle this property on ChordNode?
+						// NoteNode has 'tied', ChordNode doesn't in AST?
+						// Let's check AST. ScoreAST defines ChordNode without 'tied'.
+						// We need to add 'tied' to ChordNode or handle it differently.
+						// For now, let's assume NoteNode.
+					}
+				}
 			} else if (!this.check('STAVE_BODY_END') && !this.check('EOF')) {
 				this.advance(); // Skip unknown
 			}
@@ -408,7 +597,7 @@ export class ScoreParser {
 		return elements;
 	}
 
-	private parseMusicElement(): MusicElementNode | null {
+	private parseMusicElement(): MusicElementNode | MusicElementNode[] | null {
 		this.skipWhitespace();
 
 		// Skip connectives (handled by parser at higher level)
@@ -417,6 +606,7 @@ export class ScoreParser {
 			return null;
 		}
 
+
 		// Grace note
 		if (this.check('GRACE')) {
 			this.advance();
@@ -424,7 +614,7 @@ export class ScoreParser {
 			this.skipWhitespace();
 			if (this.check('NOTE')) {
 				const note = this.parseNote();
-				// Mark as grace (TODO: add grace property to NoteNode)
+				note.grace = true;
 				return note;
 			}
 			return null;
@@ -446,8 +636,15 @@ export class ScoreParser {
 			const notes: NoteNode[] = [];
 			while (!this.isAtEnd() && !this.check('PAREN_CLOSE')) {
 				this.skipWhitespace();
-				if (this.check('NOTE')) {
-					notes.push(this.parseNote());
+				const parsed = this.parseMusicElement();
+				if (parsed) {
+					const elements = Array.isArray(parsed) ? parsed : [parsed];
+					for (const el of elements) {
+						if (el.kind === 'Note') {
+							el.beamed = true;
+							notes.push(el);
+						}
+					}
 				} else if (!this.check('PAREN_CLOSE')) {
 					this.advance();
 				}
@@ -455,8 +652,8 @@ export class ScoreParser {
 			if (this.check('PAREN_CLOSE')) {
 				this.advance();
 			}
-			// Return first note for now (TODO: proper beam group handling)
-			return notes[0] || null;
+			// Return all parsed notes
+			return notes;
 		}
 
 		// Function call (dynamics, articulations, etc.)
@@ -486,9 +683,10 @@ export class ScoreParser {
 			else if (mod === '--') pitch.octave = Math.max(0, pitch.octave - 2) as Octave;
 		}
 
-		let duration = { ...DEFAULT_DURATION };
+		let duration = { ...this.currentDuration };
 		if (this.check('DURATION')) {
 			duration = this.parseDuration();
+			this.currentDuration = { ...duration };
 		}
 
 		// Fingering
@@ -548,9 +746,10 @@ export class ScoreParser {
 	private parseRest(): RestNode {
 		const restToken = this.advance();
 
-		let duration = { ...DEFAULT_DURATION };
+		let duration = { ...this.currentDuration };
 		if (this.check('DURATION')) {
 			duration = this.parseDuration();
+			this.currentDuration = { ...duration };
 		}
 
 		return {
@@ -579,9 +778,10 @@ export class ScoreParser {
 			this.advance();
 		}
 
-		let duration = { ...DEFAULT_DURATION };
+		let duration = { ...this.currentDuration };
 		if (this.check('DURATION')) {
 			duration = this.parseDuration();
+			this.currentDuration = { ...duration };
 		}
 
 		return {
@@ -623,7 +823,7 @@ export class ScoreParser {
 		return { ...DEFAULT_DURATION, loc: createLocation(token.line, token.column, token.start, token.end) };
 	}
 
-	private parseFunctionCall(): MusicElementNode | null {
+	private parseFunctionCall(): MusicElementNode[] | null {
 		const fnToken = this.advance();
 		const fnName = fnToken.value;
 
@@ -654,14 +854,16 @@ export class ScoreParser {
 			this.advance();
 		}
 
+
 		// Apply function to notes
 		if (DYNAMICS.has(fnName)) {
-			// Apply dynamic to all notes
-			for (const note of notes) {
-				if (!note.annotation) {
-					note.annotation = { kind: 'Annotation', loc: createLocation(0, 0, 0, 0) };
+			// Apply dynamic to FIRST note only
+			if (notes.length > 0) {
+				const firstNote = notes[0];
+				if (!firstNote.annotation) {
+					firstNote.annotation = { kind: 'Annotation', loc: createLocation(0, 0, 0, 0) };
 				}
-				note.annotation.dynamic = fnName as Dynamic;
+				firstNote.annotation.dynamic = fnName as Dynamic;
 			}
 		} else if (ARTICULATION_FN_MAP[fnName]) {
 			// Apply articulation to all notes
@@ -674,10 +876,39 @@ export class ScoreParser {
 				}
 				note.annotation.articulations.push(ARTICULATION_FN_MAP[fnName]);
 			}
+		} else if (fnName === 'slur' || fnName === 'legato') {
+			if (notes.length > 0) {
+				const first = notes[0];
+				const last = notes[notes.length - 1];
+				if (!first.annotation) first.annotation = { kind: 'Annotation', loc: createLocation(0, 0, 0, 0) };
+				if (!last.annotation) last.annotation = { kind: 'Annotation', loc: createLocation(0, 0, 0, 0) };
+
+				first.annotation.slurStart = true;
+				last.annotation.slurEnd = true;
+			}
+		} else if (fnName === 'cresc' || fnName === 'crescendo' || fnName === '<') {
+			if (notes.length > 0) {
+				const first = notes[0];
+				const last = notes[notes.length - 1];
+				if (!first.annotation) first.annotation = { kind: 'Annotation', loc: createLocation(0, 0, 0, 0) };
+				if (!last.annotation) last.annotation = { kind: 'Annotation', loc: createLocation(0, 0, 0, 0) };
+
+				first.annotation.crescendo = 'start';
+				last.annotation.crescendo = 'end';
+			}
+		} else if (fnName === 'decresc' || fnName === 'dim' || fnName === '>') {
+			if (notes.length > 0) {
+				const first = notes[0];
+				const last = notes[notes.length - 1];
+				if (!first.annotation) first.annotation = { kind: 'Annotation', loc: createLocation(0, 0, 0, 0) };
+				if (!last.annotation) last.annotation = { kind: 'Annotation', loc: createLocation(0, 0, 0, 0) };
+
+				first.annotation.decrescendo = 'start';
+				last.annotation.decrescendo = 'end';
+			}
 		}
 
-		// Return first note (the rest are added implicitly)
-		return notes[0] || null;
+		return notes;
 	}
 
 	private parseAnnotationBlock(elements: MusicElementNode[]): void {

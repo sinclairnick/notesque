@@ -1,7 +1,7 @@
 // Scorelang v2.0 Validator Tests
 
 import { describe, it, expect } from 'vitest';
-import { parseScoreToAST } from '../score-parser-new';
+import { parseScoreToAST } from '../score-parser';
 import { validateScore, type DiagnosticSeverity } from '../score-validator';
 
 function parseAndValidate(source: string) {

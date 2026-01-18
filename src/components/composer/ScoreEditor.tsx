@@ -1,4 +1,9 @@
 import { useRef, useCallback } from 'react';
+import Editor, { type OnMount, loader } from '@monaco-editor/react';
+import { registerScoreLanguage, SCORE_LANG_ID, validate } from '@/lib/score-monaco';
+
+// Pre-load monaco to avoid flashing
+loader.config({ paths: { vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.55.1/min/vs' } });
 
 interface ScoreEditorProps {
 	value: string;
@@ -7,67 +12,64 @@ interface ScoreEditorProps {
 }
 
 export function ScoreEditor({ value, onChange, className = '' }: ScoreEditorProps) {
-	const textareaRef = useRef<HTMLTextAreaElement>(null);
-	const lineNumbersRef = useRef<HTMLDivElement>(null);
+	const editorRef = useRef<any>(null);
+	const monacoRef = useRef<any>(null);
 
-	// Sync scroll between textarea and line numbers
-	const handleScroll = useCallback(() => {
-		if (textareaRef.current && lineNumbersRef.current) {
-			lineNumbersRef.current.scrollTop = textareaRef.current.scrollTop;
+	const handleEditorWillMount = useCallback((monaco: any) => {
+		// Register the language once
+		if (!monaco.languages.getLanguages().some((lang: any) => lang.id === SCORE_LANG_ID)) {
+			registerScoreLanguage(monaco);
 		}
 	}, []);
 
-	// Calculate line numbers
-	const lineCount = value.split('\n').length;
+	const handleEditorDidMount: OnMount = (editor, monaco) => {
+		editorRef.current = editor;
+		monacoRef.current = monaco;
 
-	// Handle tab key for indentation
-	const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-		if (e.key === 'Tab') {
-			e.preventDefault();
-			const textarea = textareaRef.current;
-			if (!textarea) return;
+		// Initial validation
+		updateMarkers(editor.getValue(), monaco, editor);
 
-			const start = textarea.selectionStart;
-			const end = textarea.selectionEnd;
-			const newValue = value.substring(0, start) + '  ' + value.substring(end);
+		// Focus editor
+		editor.focus();
+	};
+
+	const updateMarkers = (content: string, monaco: any, editor: any) => {
+		const markers = validate(content);
+		monaco.editor.setModelMarkers(editor.getModel(), SCORE_LANG_ID, markers);
+	};
+
+	const handleEditorChange = (newValue: string | undefined) => {
+		if (newValue !== undefined) {
 			onChange(newValue);
-
-			// Restore cursor position
-			requestAnimationFrame(() => {
-				textarea.selectionStart = textarea.selectionEnd = start + 2;
-			});
+			if (monacoRef.current && editorRef.current) {
+				updateMarkers(newValue, monacoRef.current, editorRef.current);
+			}
 		}
 	};
 
 	return (
-		<div className={`flex h-full bg-slate-950 rounded-lg overflow-hidden ${className}`}>
-			{/* Line numbers */}
-			<div
-				ref={lineNumbersRef}
-				className="flex-none w-12 bg-slate-900 text-slate-500 text-right py-4 pr-3 select-none overflow-hidden font-mono text-sm"
-				style={{ lineHeight: '1.5rem' }}
-			>
-				{Array.from({ length: lineCount }, (_, i) => (
-					<div key={i}>{i + 1}</div>
-				))}
-			</div>
-
-			{/* Editor textarea with basic styling */}
-			<textarea
-				ref={textareaRef}
+		<div className={`flex flex-col h-full bg-[#1e1e1e] rounded-lg overflow-hidden border border-slate-800 ${className}`}>
+			<Editor
+				height="100%"
+				language={SCORE_LANG_ID}
 				value={value}
-				onChange={(e) => onChange(e.target.value)}
-				onScroll={handleScroll}
-				onKeyDown={handleKeyDown}
-				className="flex-1 py-4 px-3 bg-slate-950 text-slate-200 resize-none outline-none border-none font-mono text-sm"
-				style={{
-					lineHeight: '1.5rem',
+				theme="vs-dark"
+				onChange={handleEditorChange}
+				beforeMount={handleEditorWillMount}
+				onMount={handleEditorDidMount}
+				options={{
+					minimap: { enabled: false },
+					fontSize: 14,
+					lineHeight: 22,
+					fontFamily: "'JetBrains Mono', 'Fira Code', 'Menlo', 'Monaco', 'Courier New', monospace",
+					renderLineHighlight: 'all',
+					scrollBeyondLastLine: false,
 					tabSize: 2,
+					insertSpaces: true,
+					wordWrap: 'on',
+					automaticLayout: true,
+					padding: { top: 16, bottom: 16 },
 				}}
-				spellCheck={false}
-				autoCapitalize="off"
-				autoCorrect="off"
-				placeholder="Enter Score notation..."
 			/>
 		</div>
 	);
